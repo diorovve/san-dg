@@ -1,0 +1,91 @@
+CreateToggle("Fly (Stealth)", "Fly", function(state)
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+
+    if state then
+        -- Очищаем старые
+        for _, v in ipairs(hrp:GetChildren()) do
+            if v.Name == "SD_FlyVel" or v.Name == "SD_FlyGyro" then v:Destroy() end
+        end
+
+        -- Аттачмент для LinearVelocity (работает мягче, чем BodyVelocity)
+        local att = Instance.new("Attachment")
+        att.Name = "SD_FlyAtt"
+        att.Parent = hrp
+
+        local lv = Instance.new("LinearVelocity")
+        lv.Name = "SD_FlyVel"
+        lv.Attachment0 = att
+        lv.MaxForce = math.huge -- Огромная сила, чтобы не падать
+        lv.VectorVelocity = Vector3.new(0, 0, 0)
+        lv.Parent = hrp
+
+        local align = Instance.new("AlignOrientation")
+        align.Name = "SD_FlyAlign"
+        align.Mode = Enum.OrientationAlignmentMode.OneAttachment
+        align.Attachment0 = att
+        align.MaxTorque = math.huge
+        align.Parent = hrp
+
+        -- Скрываем состояние падения и заставляем Humanoiд думать, что мы бежим
+        pcall(function()
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+            hum.PlatformStand = false
+        end)
+
+        -- Периодический сброс состояния, чтобы античит не видел зависания
+        local stateKeep
+        stateKeep = task.spawn(function()
+            while Config.Fly do
+                task.wait(1)
+                if hum and hum.Health > 0 then
+                    pcall(function()
+                        hum:ChangeState(Enum.HumanoidStateType.Running)
+                    end)
+                end
+            end
+        end)
+
+        local flyConn
+        flyConn = RunService.Heartbeat:Connect(function(dt)
+            if not Config.Fly or not hrp.Parent or not hum.Parent then
+                if flyConn then flyConn:Disconnect() end
+                if att and att.Parent then att:Destroy() end
+                if lv and lv.Parent then lv:Destroy() end
+                if align and align.Parent then align:Destroy() end
+                if stateKeep then task.cancel(stateKeep) end
+                return
+            end
+
+            if hum.Health <= 0 then return end
+
+            -- Направление движения
+            local move = Vector3.new(0, 0, 0)
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then move += Camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then move -= Camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then move -= Camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then move += Camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move += Vector3.new(0, 1, 0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then move -= Vector3.new(0, 1, 0) end
+
+            -- Ограничиваем скорость, чтобы не выглядело как телепорт
+            if move.Magnitude > 0 then
+                move = move.Unit * Config.FlySpeed
+            end
+
+            lv.VectorVelocity = move
+            align.CFrame = Camera.CFrame
+        end)
+    else
+        -- Выключение
+        for _, v in ipairs(hrp:GetChildren()) do
+            if v.Name == "SD_FlyVel" or v.Name == "SD_FlyAtt" or v.Name == "SD_FlyAlign" then 
+                v:Destroy() 
+            end
+        end
+        pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
+    end
+end)
